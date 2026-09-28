@@ -1,0 +1,11 @@
+{
+  "svelte.enable-ts-plugin": true,
+  "css.customData": [
+    ".vscode/tailwind.json"
+  ],
+  "cSpell.words": [
+    "descramble",
+    "descrambled",
+    "Splicerr"
+  ]
+}
