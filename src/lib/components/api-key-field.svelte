@@ -3,6 +3,7 @@
     import { setFreesoundApiKey } from "$lib/freesound/api"
     import { verifyFreesoundKey, type KeyCheck } from "$lib/freesound/verify"
     import { verifySpliceSource } from "$lib/splice/verify"
+    import { verifyLooperman } from "$lib/looperman/api"
     import Input from "$lib/components/ui/input/input.svelte"
     import Button from "$lib/components/ui/button/button.svelte"
     import Label from "$lib/components/ui/label/label.svelte"
@@ -19,12 +20,14 @@
         onvalid,
         compact = false,
     }: {
-        source: "splice" | "freesound"
+        source: "splice" | "freesound" | "looperman"
         onvalid?: () => void
         compact?: boolean
     } = $props()
 
     let key = $state("")
+    let email = $state("")
+    let password = $state("")
     let check = $state<KeyCheck>({ status: "idle" })
     let reveal = $state(false)
 
@@ -40,6 +43,16 @@
                 saveConfig()
                 onvalid?.()
             }
+        } else if (source == "looperman") {
+            check = { status: "checking" }
+            const result = await verifyLooperman(email, password)
+            check = result
+            if (result.status == "valid") {
+                config.looperman_email = email.trim()
+                config.looperman_password = password
+                saveConfig()
+                onvalid?.()
+            }
         } else {
             check = { status: "checking" }
             const result = await verifySpliceSource()
@@ -52,12 +65,16 @@
     const onkeydown = (event: KeyboardEvent) => {
         if (event.key == "Enter" && key.trim()) run()
     }
+
+    const onkeydownLogin = (event: KeyboardEvent) => {
+        if (event.key == "Enter" && email.trim() && password) run()
+    }
 </script>
 
 <div class="flex flex-col gap-2">
     <Label for="apikey" class="flex items-center gap-1.5">
         <KeyRound size={14} class="text-signal" />
-        {#if source == "freesound"}Freesound API key{:else}Check Splice{/if}
+        {#if source == "freesound"}Freesound API key{:else if source == "looperman"}Looperman login{:else}Check Splice{/if}
     </Label>
 
     {#if !compact}
@@ -71,6 +88,13 @@
                 <span class="font-medium text-foreground"
                     >Client secret / Api key</span
                 > column.
+            {:else if source == "looperman"}
+                Sprite searches Looperman's free loops. Searching and previews
+                need no account, but saving full-quality WAVs does — log in
+                with your Looperman account from
+                <ExternalLink to="https://www.looperman.com/account/login"
+                    >looperman.com</ExternalLink
+                >.
             {:else}
                 Splice needs no key. Sprite will check that the Splice API is
                 reachable from this machine.
@@ -103,18 +127,60 @@
                     {reveal ? "hide" : "show"}
                 </button>
             </div>
+        {:else if source == "looperman"}
+            <div class="flex flex-col gap-2 flex-1">
+                <Input
+                    id="loopemail"
+                    type="email"
+                    autocomplete="email"
+                    spellcheck="false"
+                    placeholder="Looperman email"
+                    bind:value={email}
+                    onkeydown={onkeydownLogin}
+                    class={cn(
+                        "font-mono text-xs",
+                        check.status == "valid" && "border-live",
+                        check.status == "invalid" && "border-destructive"
+                    )}
+                />
+                <div class="relative">
+                    <Input
+                        id="looppass"
+                        type={reveal ? "text" : "password"}
+                        autocomplete="current-password"
+                        spellcheck="false"
+                        placeholder="Looperman password"
+                        bind:value={password}
+                        onkeydown={onkeydownLogin}
+                        class={cn(
+                            "font-mono text-xs",
+                            check.status == "valid" && "border-live",
+                            check.status == "invalid" && "border-destructive"
+                        )}
+                    />
+                    <button
+                        type="button"
+                        class="absolute right-2 top-1/2 -translate-y-1/2 text-[11px] text-muted-foreground hover:text-foreground"
+                        onclick={() => (reveal = !reveal)}
+                    >
+                        {reveal ? "hide" : "show"}
+                    </button>
+                </div>
+            </div>
         {/if}
         <Button
             variant="outline"
             class="flex-shrink-0"
-            disabled={busy || (source == "freesound" && !key.trim())}
+            disabled={busy ||
+                (source == "freesound" && !key.trim()) ||
+                (source == "looperman" && (!email.trim() || !password))}
             onclick={run}
         >
             {#if busy}
                 <Loader class="animate-spin" />
                 Checking
             {:else}
-                Test {source == "freesound" ? "key" : "connection"}
+                Test {source == "freesound" ? "key" : source == "looperman" ? "login" : "connection"}
             {/if}
         </Button>
     </div>
@@ -122,7 +188,7 @@
     {#if check.status == "valid"}
         <div class="flex items-center gap-1.5 text-sm text-live">
             <Check size={15} />
-            {#if source == "freesound"}Key works. You can search Freesound now.{:else}Splice
+            {#if source == "freesound"}Key works. You can search Freesound now.{:else if source == "looperman"}Login works. WAV downloads are on.{:else}Splice
                 is reachable.{/if}
         </div>
     {:else if check.status == "invalid"}
@@ -136,6 +202,12 @@
         <p class="text-muted-foreground text-xs">
             The key is stored in Sprite's config file on this machine and is sent
             only to Freesound as an authorization header.
+        </p>
+    {:else if source == "looperman" && !compact}
+        <p class="text-muted-foreground text-xs">
+            The login is stored in Sprite's config file on this machine and is
+            sent only to looperman.com. Without it, Sprite still searches
+            Looperman but saves preview MP3s instead of WAVs.
         </p>
     {/if}
 </div>

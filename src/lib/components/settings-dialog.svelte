@@ -28,9 +28,7 @@
     let flashbangAudio = $state<HTMLAudioElement>(null!)
 
     // The key field edits a local draft so we only persist on a successful test.
-    let keySource = $state<SampleSource>(
-        config.active_source == "freesound" ? "freesound" : "splice"
-    )
+    let keySource = $state<SampleSource>(config.active_source)
 </script>
 
 <Dialog.Root bind:open={settingsDialog.open}>
@@ -202,7 +200,7 @@
                 ><span>by ascpixi.</span>
             </div>
             <div class="flex items-center gap-2">
-                <span>MIT licensed. Freesound samples keep their own licenses.</span>
+                <span>MIT licensed. Freesound samples keep their own licenses. Looperman loops stay royalty-free under Looperman's terms.</span>
             </div>
         </Dialog.Footer>
     </Dialog.Content>

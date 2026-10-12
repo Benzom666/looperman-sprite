@@ -10,10 +10,13 @@
     const options: { value: SampleSource; label: string }[] = [
         { value: "splice", label: "Splice" },
         { value: "freesound", label: "Freesound" },
+        { value: "looperman", label: "Looperman" },
     ]
 
     const missingKey = $derived(
-        config.active_source == "freesound" && !config.freesound_api_key
+        (config.active_source == "freesound" && !config.freesound_api_key) ||
+            (config.active_source == "looperman" &&
+                (!config.looperman_email || !config.looperman_password))
     )
 </script>
 
@@ -46,7 +49,9 @@
             class="flex gap-1 items-center text-warn text-xs whitespace-nowrap"
         >
             <TriangleAlert size="12" />
-            Add a Freesound API key in Settings
+            {config.active_source == "looperman"
+                ? "Add Looperman login in Settings for WAVs"
+                : "Add a Freesound API key in Settings"}
         </div>
     {/if}
 </div>

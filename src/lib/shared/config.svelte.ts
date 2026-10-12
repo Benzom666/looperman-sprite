@@ -26,6 +26,11 @@ const DEFAULT_CONFIG = {
     // Freesound read-only API key from https://freesound.org/apiv2/apply.
     // Stored in the app config dir, never in the repo.
     freesound_api_key: null as string | null,
+    // Looperman account for full-quality WAV downloads. Search and previews
+    // work without it; the password is stored in the app config dir, never
+    // in the repo, and is only ever sent to looperman.com.
+    looperman_email: null as string | null,
+    looperman_password: null as string | null,
     // False until the first-run setup has been completed.
     setup_complete: false,
 }
@@ -82,7 +87,7 @@ export async function loadConfig() {
         Object.assign(config, JSON.parse(fileContent))
 
         // A hand-edited or outdated config could carry a source we do not know.
-        if (!["splice", "freesound"].includes(config.active_source)) {
+        if (!["splice", "freesound", "looperman"].includes(config.active_source)) {
             console.warn("⚠️ Unknown active_source, falling back to splice")
             config.active_source = "splice"
         }

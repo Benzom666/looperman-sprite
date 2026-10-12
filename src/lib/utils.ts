@@ -13,6 +13,9 @@ export const sampleSource = (sampleAsset: SampleAsset): SampleSource =>
 export const isFreesound = (sampleAsset: SampleAsset) =>
     sampleSource(sampleAsset) == "freesound"
 
+export const isLooperman = (sampleAsset: SampleAsset) =>
+    sampleSource(sampleAsset) == "looperman"
+
 export function shuffle<T>(items: T[]): T[] {
     const result = [...items]
     for (let i = result.length - 1; i > 0; i--) {

@@ -21,6 +21,7 @@
     let expandTags = $state(false)
 
     const isFreesoundSource = $derived(config.active_source == "freesound")
+    const isLoopermanSource = $derived(config.active_source == "looperman")
 
     const hasFilters = $derived(
         dataStore.tags.length > 0 ||
@@ -183,7 +184,7 @@
                         />
                     {/each}
                 </div>
-                {#if isFreesoundSource}
+                {#if isFreesoundSource || isLoopermanSource}
                     <p class="text-[10px] leading-snug text-muted-foreground/70">
                         Counts come from the current page, not the whole library.
                     </p>

@@ -23,6 +23,9 @@
                 },
                 {
                     "url": "https://cdn.freesound.org/**"
+                },
+                {
+                    "url": "https://www.looperman.com/**"
                 }
             ]
         },

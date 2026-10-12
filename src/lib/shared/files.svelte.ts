@@ -4,7 +4,7 @@ import { exists, create, mkdir } from "@tauri-apps/plugin-fs"
 import { fetch } from "@tauri-apps/plugin-http"
 import { getSampleAudioBlob } from "./store.svelte"
 import { config, isSamplesDirValid } from "$lib/shared/config.svelte"
-import { isFreesound } from "$lib/utils"
+import { isFreesound, isLooperman } from "$lib/utils"
 import { encode } from "node-wav"
 import { Buffer } from "buffer"
 
@@ -17,14 +17,15 @@ const AUDIO_EXTENSION =
 
 // We always write 16-bit WAV, so a Freesound sound named "loop.aiff" must not
 // end up as WAV bytes inside a file called "loop.aiff". Splice names are
-// already extensionless, so its paths are left untouched.
+// already extensionless, so its paths are left untouched. Looperman titles
+// are human phrases, so they get the same treatment as Freesound names.
 const wavFilename = (name: string) =>
     sanitizePath(name).replace(AUDIO_EXTENSION, "") + ".wav"
 
 const sampleAssetPath = (sampleAsset: SampleAsset) =>
     sanitizePath(
         `${sampleAsset.parents.items[0].name}/${
-            isFreesound(sampleAsset)
+            isFreesound(sampleAsset) || isLooperman(sampleAsset)
                 ? wavFilename(sampleAsset.name)
                 : sampleAsset.name
         }`
@@ -74,11 +75,15 @@ export async function saveSample(sampleAsset: SampleAsset) {
     const samples = await new AudioContext().decodeAudioData(buffer)
     const channels: Float32Array[] = []
 
+    // The 12ms trim corrects for MP3 encoder delay. Looperman WAV downloads
+    // are already sample-accurate, so only trim compressed audio.
+    const trimCompressed = config.cut_mp3_delay && blob.type != "audio/wav"
+
     for (let i = 0; i < samples.numberOfChannels; i++) {
         const channel = samples.getChannelData(i)
         
         // Calculate 12ms in samples based on the actual sample rate
-        const trimSamples = config.cut_mp3_delay ? Math.floor(samples.sampleRate * 0.012) : 0
+        const trimSamples = trimCompressed ? Math.floor(samples.sampleRate * 0.012) : 0
         
         const start = trimSamples
         const end = (sampleAsset.duration / 1000) * samples.sampleRate + start
@@ -118,8 +123,10 @@ export async function absolutePackImagePath(sampleAsset: SampleAsset) {
 
     const pack = sampleAsset.parents.items[0]
     const packDir = sanitizePath(pack.name)
-    // Freesound has no pack artwork, so the stand-in we saved is a PNG.
-    const extension = isFreesound(sampleAsset) ? "png" : "jpg"
+    // Freesound has no pack artwork and Looperman's stand-in is its waveform
+    // render, so the saved cover is a PNG for both. Splice serves JPEGs.
+    const extension =
+        isFreesound(sampleAsset) || isLooperman(sampleAsset) ? "png" : "jpg"
     return await join(config.samples_dir, packDir, `cover.${extension}`)
 }
 

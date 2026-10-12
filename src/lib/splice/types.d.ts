@@ -54,7 +54,7 @@ export type AssetFile = {
     __typename: string
 }
 
-export type SampleSource = "splice" | "freesound"
+export type SampleSource = "splice" | "freesound" | "looperman"
 
 export type SampleAsset = {
     // Absent on raw Splice GraphQL responses; see sampleSource() for the default.

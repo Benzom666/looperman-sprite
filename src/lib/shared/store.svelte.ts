@@ -5,6 +5,14 @@ import {
     searchFreesound,
     toSampleAsset,
 } from "$lib/freesound/api"
+import {
+    deriveLoopermanTagSummary,
+    ensureLoopermanSession,
+    fetchLoopermanPreview,
+    fetchLoopermanWav,
+    searchLooperman,
+    toSampleAsset as toLoopermanAsset,
+} from "$lib/looperman/api"
 import type {
     AssetCategorySlug,
     AssetSortType,
@@ -19,7 +27,7 @@ import type {
 import { globalAudio } from "./audio.svelte"
 import { loading } from "./loading.svelte"
 import { config, saveConfig } from "./config.svelte"
-import { isFreesound, shuffle } from "$lib/utils"
+import { isFreesound, isLooperman, shuffle } from "$lib/utils"
 import { fetch } from "@tauri-apps/plugin-http"
 
 export const DEFAULT_SORT = "relevance"
@@ -89,6 +97,7 @@ export const storeCallbacks = $state({
 })
 
 let currentQueryIdentity: string = ""
+let fetchSeq = 0
 
 // Both sources are normalized into this shape so that the pagination and
 // stale-response bookkeeping below stays source agnostic.
@@ -142,8 +151,47 @@ async function fetchFreesoundPage(): Promise<NormalizedPage> {
     }
 }
 
+async function fetchLoopermanPage(): Promise<NormalizedPage> {
+    // An authenticated listing embeds per-loop WAV download tokens, so log
+    // in first when credentials are configured. Search itself is public and
+    // works without a session.
+    await ensureLoopermanSession(
+        config.looperman_email,
+        config.looperman_password
+    )
+
+    const response = await searchLooperman({
+        query: queryStore.query,
+        tags: dataStore.tags,
+        key: queryStore.key,
+        chord_type: queryStore.chord_type,
+        bpm: queryStore.bpm,
+        min_bpm: queryStore.min_bpm,
+        max_bpm: queryStore.max_bpm,
+        asset_category_slug: queryStore.asset_category_slug,
+        page: queryStore.page,
+        page_size: PER_PAGE,
+        sort: queryStore.sort,
+        order: queryStore.order,
+    })
+
+    const items = response.items.map(toLoopermanAsset)
+
+    return {
+        // Looperman has no random ordering, so we shuffle the page received.
+        items: queryStore.sort == "random" ? shuffle(items) : items,
+        total_records: response.total,
+        tag_summary: deriveLoopermanTagSummary(response.items),
+    }
+}
+
 export const fetchAssets = () => {
+    // Sequence numbers keep overlapping fetches honest: only the latest one
+    // may settle the loading state, so a stale response can neither leave
+    // the spinner stuck on nor overwrite a newer error.
+    const seq = ++fetchSeq
     const identityBeforeFetch = JSON.stringify(queryIdentity)
+    const pageBeforeFetch = queryStore.page
     if (identityBeforeFetch != currentQueryIdentity) {
         storeCallbacks.onbeforedataupdate?.()
     }
@@ -151,7 +199,9 @@ export const fetchAssets = () => {
     const page =
         config.active_source == "freesound"
             ? fetchFreesoundPage()
-            : fetchSplicePage()
+            : config.active_source == "looperman"
+              ? fetchLoopermanPage()
+              : fetchSplicePage()
     page
         .then((result) => {
             if (!result) {
@@ -195,12 +245,23 @@ export const fetchAssets = () => {
                 loading.beforeFirstLoad = false
 
                 loading.fetchError = null
+            } else if (seq == fetchSeq) {
+                // A stale response must still release the spinner when no
+                // newer fetch is in flight, or infinite scroll stays blocked.
+                loading.assets = false
+                console.info("🕜 Ignored stale assets")
             } else {
                 console.info("🕜 Ignored stale assets")
             }
         })
         .catch((error: Error) => {
             console.error("⚠️ Failed to fetch assets", error)
+            if (seq != fetchSeq) return
+            // A failed append must not consume its page, or the retry would
+            // skip it and leave a gap in the list.
+            if (JSON.stringify(queryIdentity) == identityBeforeFetch) {
+                queryStore.page = pageBeforeFetch
+            }
             loading.fetchError = error
             loading.assets = false
         })
@@ -247,13 +308,41 @@ export function setActiveSource(source: SampleSource) {
 /**
  * Splice serves XOR-scrambled MP3s that must be descrambled into a blob before
  * they can be played. Freesound previews are already plain MP3s, so we hand the
- * URL straight to the audio element and skip the fetch entirely.
+ * URL straight to the audio element and skip the fetch entirely. Looperman
+ * hotlink-protects its previews (403 without a looperman.com Referer, which the
+ * app webview does not send), so we fetch the bytes through Tauri's HTTP
+ * client into a blob URL instead.
  */
 export async function getPreviewURL(sampleAsset: SampleAsset) {
     if (isFreesound(sampleAsset)) {
         return sampleAsset.files[0].url
     }
+    if (isLooperman(sampleAsset)) {
+        return await getLoopermanPreviewURL(sampleAsset)
+    }
     return await getDescrambledSampleURL(sampleAsset)
+}
+
+export async function getLoopermanPreviewURL(sampleAsset: SampleAsset) {
+    const existingBlobURL = dataStore.descrambledSamples.get(sampleAsset.uuid)
+    if (existingBlobURL) {
+        console.info("✔️ Reusing Looperman preview blob")
+        return existingBlobURL
+    }
+
+    loading.samples.add(sampleAsset.uuid)
+    loading.samplesCount++
+
+    try {
+        const blob = await fetchLoopermanPreview(sampleAsset.files[0].url)
+        const blobURL = window.URL.createObjectURL(blob)
+        dataStore.descrambledSamples.set(sampleAsset.uuid, blobURL)
+        console.info("🔗 Created Looperman preview blob")
+        return blobURL
+    } finally {
+        loading.samples.delete(sampleAsset.uuid)
+        loading.samplesCount--
+    }
 }
 
 export async function getDescrambledSampleURL(sampleAsset: SampleAsset) {
@@ -291,10 +380,38 @@ export async function getDescrambledSampleURL(sampleAsset: SampleAsset) {
 /**
  * Raw audio bytes for saving to disk. Freesound originals are only reachable
  * through OAuth2, so with a read-only key we save its HQ MP3 preview instead.
+ * Looperman originals are full-quality WAVs behind a login; we download via
+ * the session-bound token scraped from the listing page and fall back to the
+ * preview MP3 when the session or token expired.
  */
 export async function getSampleAudioBlob(sampleAsset: SampleAsset) {
     if (isFreesound(sampleAsset)) {
         return await (await fetch(sampleAsset.files[0].url)).blob()
+    }
+
+    if (isLooperman(sampleAsset)) {
+        const download = sampleAsset.files.find(
+            (file) => file.asset_file_type_slug == "original"
+        )
+        if (download) {
+            await ensureLoopermanSession(
+                config.looperman_email,
+                config.looperman_password
+            )
+            try {
+                return await fetchLoopermanWav(
+                    download.url,
+                    sampleAsset.parents.items[0]?.url ??
+                        "https://www.looperman.com/loops"
+                )
+            } catch (error) {
+                console.warn(
+                    "⚠️ Looperman WAV download failed, saving preview instead",
+                    error
+                )
+            }
+        }
+        return await fetchLoopermanPreview(sampleAsset.files[0].url)
     }
 
     const blobURL = await getDescrambledSampleURL(sampleAsset)

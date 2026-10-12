@@ -29,6 +29,11 @@
         body: string
     }[] = [
         {
+            id: "looperman",
+            title: "Looperman",
+            body: "Free community loops with key and BPM on every upload. No key needed to search; add your login for full-quality WAVs.",
+        },
+        {
             id: "freesound",
             title: "Freesound",
             body: "736,000+ Creative Commons samples. Free, and the only one that works without a Splice subscription.",
@@ -41,18 +46,30 @@
     ]
 
     let step = $state(0)
-    let source = $state<SampleSource>("freesound")
+    let source = $state<SampleSource>("looperman")
     let dirValid = $state(false)
     let dirTouched = $state(false)
     let keyOk = $state(false)
 
     // Suggest a folder in Documents (visible in Finder, not a system folder that
     // gets cleaned) and create it, so the first run is never a dead end.
+    // Looperman and Splice need no key to start searching: Looperman only
+    // asks for a login when you want full-quality WAVs instead of previews.
+    const keyNeedsCheck = (value: SampleSource) => value == "freesound"
+
+    // A Looperman login is optional, so leaving the Access step is always
+    // allowed for sources without a mandatory key.
+    $effect(() => {
+        if (!keyNeedsCheck(source)) keyOk = true
+    })
+
     onMount(async () => {
         dirValid = isSamplesDirValid()
         if (config.samples_dir) {
             source = config.active_source
-            keyOk = config.active_source == "splice" || !!config.freesound_api_key
+            keyOk =
+                !keyNeedsCheck(config.active_source) ||
+                !!config.freesound_api_key
             return
         }
         const suggestion = await join(await homeDir(), "Documents", "Sprite")
@@ -220,10 +237,19 @@
                     <ArrowRight size={16} />
                 </Button>
             {:else}
-                <Button disabled={!canAdvance} onclick={finish}>
-                    Start searching
-                    <ArrowRight size={16} />
-                </Button>
+                <div class="flex gap-2 items-center">
+                    {#if source == "freesound" && !keyOk}
+                        <!-- The Freesound key is optional: skip and add it
+                        later in Settings, or search another library. -->
+                        <Button variant="ghost" onclick={finish}>
+                            Skip for now
+                        </Button>
+                    {/if}
+                    <Button disabled={!canAdvance} onclick={finish}>
+                        Start searching
+                        <ArrowRight size={16} />
+                    </Button>
+                </div>
             {/if}
         </div>
     </div>

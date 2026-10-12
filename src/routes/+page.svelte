@@ -30,6 +30,10 @@
     import { setActiveSource } from "$lib/shared/store.svelte"
 
     const isFreesoundSource = $derived(config.active_source == "freesound")
+    const isLoopermanSource = $derived(config.active_source == "looperman")
+    // Neither API library can order by filename or key; both fall back to
+    // relevance. Splice is the only source with real name/key sorting.
+    const sortLimited = $derived(isFreesoundSource || isLoopermanSource)
 
     $effect(() => {
         if (
@@ -62,8 +66,7 @@
         fetchAssets()
     }
 
-    const step = (delta: number) => {
-        const currentIndex = dataStore.sampleAssets.findIndex(
+    const step = (delta: number) => {        const currentIndex = dataStore.sampleAssets.findIndex(
             (asset) => asset.uuid === globalAudio.currentAsset?.uuid
         )
         const nextIndex = currentIndex + delta
@@ -75,6 +78,20 @@
             ?.scrollIntoView({ behavior: "smooth", block: "nearest" })
     }
 
+    // Pagination is append-only: the next page loads on scroll or via the
+    // footer button, and a failed page rolls back so the retry re-requests
+    // the same page instead of skipping it.
+    const loadMore = () => {
+        if (loading.assets) return
+        if (
+            dataStore.sampleAssets.length >= dataStore.total_records ||
+            dataStore.total_records == 0
+        )
+            return
+        queryStore.page += 1
+        fetchAssets()
+    }
+
     storeCallbacks.onbeforedataupdate = () => {
         viewportRef.scrollTo({ top: 0, behavior: "smooth" })
     }
@@ -83,12 +100,10 @@
     onMount(() => {
         viewportRef.addEventListener("scroll", () => {
             if (
-                !loading.assets &&
                 viewportRef.scrollTop + viewportRef.clientHeight >=
-                    viewportRef.scrollHeight - viewportRef.clientHeight
+                viewportRef.scrollHeight - viewportRef.clientHeight
             ) {
-                queryStore.page += 1
-                fetchAssets()
+                loadMore()
             }
         })
 
@@ -137,9 +152,11 @@
                 class="flex gap-3 items-center justify-between px-4 py-1.5 text-xs text-muted-foreground shrink-0"
             >
                 <span>
-                    {isFreesoundSource
-                        ? "Freesound · Creative Commons"
-                        : "Splice"}
+                    {isLoopermanSource
+                        ? "Looperman · Free loops"
+                        : isFreesoundSource
+                          ? "Freesound · Creative Commons"
+                          : "Splice"}
                 </span>
                 {#if loading.assets}
                     <span class="text-signal">searching…</span>
@@ -152,7 +169,7 @@
                 <div
                     class="w-12 flex-shrink-0 text-[10px] uppercase tracking-widest text-muted-foreground"
                 >
-                    {isFreesoundSource ? "Src" : "Pack"}
+                    {isFreesoundSource || isLoopermanSource ? "Src" : "Pack"}
                 </div>
                 <SortHeader
                     value="name"
@@ -160,8 +177,8 @@
                     sort={queryStore.sort}
                     order={queryStore.order}
                     onsort={updateSort}
-                    disabled={isFreesoundSource}
-                    disabledReason="Freesound cannot sort by filename"
+                    disabled={sortLimited}
+                    disabledReason="This library cannot sort by filename"
                     class="min-w-32 w-96 flex-[3_1_auto]"
                 />
                 <SortHeader
@@ -178,8 +195,8 @@
                     sort={queryStore.sort}
                     order={queryStore.order}
                     onsort={updateSort}
-                    disabled={isFreesoundSource}
-                    disabledReason="Freesound cannot sort by key"
+                    disabled={sortLimited}
+                    disabledReason="This library cannot sort by key"
                     class="flex-shrink-0 w-14 flex-grow"
                 />
                 <SortHeader
@@ -274,6 +291,36 @@
                     {/each}
                 </div>
             </ScrollArea>
+
+            {#if dataStore.sampleAssets.length > 0}
+                <div
+                    class="flex gap-3 items-center justify-center px-4 py-2 text-xs text-muted-foreground shrink-0"
+                >
+                    <span>
+                        Showing {dataStore.sampleAssets.length} of {dataStore.total_records.toLocaleString()}
+                    </span>
+                    {#if dataStore.sampleAssets.length < dataStore.total_records}
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={loading.assets}
+                            onclick={loadMore}
+                        >
+                            {loading.assets ? "Loading…" : "Load more"}
+                        </Button>
+                    {/if}
+                </div>
+            {/if}
+            {#if loading.fetchError && dataStore.sampleAssets.length > 0}
+                <div
+                    class="flex gap-2 items-center justify-center px-4 pb-2 text-xs text-destructive shrink-0"
+                >
+                    <span>Couldn't load more{loading.fetchError.message ? `: ${loading.fetchError.message}` : ""}</span>
+                    <Button variant="outline" size="sm" onclick={loadMore}>
+                        Retry
+                    </Button>
+                </div>
+            {/if}
 
             <AudioPlayer onprev={() => step(-1)} onnext={() => step(1)} />
         </main>

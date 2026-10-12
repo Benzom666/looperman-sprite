@@ -1,7 +1,7 @@
 {
   "name": "sprite",
   "version": "1.0.0",
-  "description": "Search a free sample library and drag it into your DAW",
+  "description": "The open-source Splice alternative: search Looperman's free loops and drag them into your DAW",
   "type": "module",
   "scripts": {
     "dev": "vite dev",

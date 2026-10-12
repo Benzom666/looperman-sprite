@@ -11,7 +11,7 @@
     import * as Tooltip from "$lib/components/ui/tooltip/index.js"
     import LoaderCircle from "lucide-svelte/icons/loader-circle"
     import { dataStore, fetchAssets } from "$lib/shared/store.svelte"
-    import { cn, formatKey, isFreesound } from "$lib/utils"
+    import { cn, formatKey, isFreesound, isLooperman } from "$lib/utils"
     import { loading } from "$lib/shared/loading.svelte"
     import { assetIcons } from "$lib/shared/icons.svelte"
     import { handleSampleDrag } from "$lib/shared/drag.svelte"
@@ -150,7 +150,9 @@
 
         <Waveform
             src={sampleAsset.files[1].url}
-            format={isFreesound(sampleAsset) ? "image" : "json"}
+            format={isFreesound(sampleAsset) || isLooperman(sampleAsset)
+                ? "image"
+                : "json"}
             progress={selected ? globalAudio.progress() : 0}
             onseek={(progress) => {
                 const startTime = progress * (sampleAsset.duration / 1000)
